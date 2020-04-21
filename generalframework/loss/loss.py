@@ -193,4 +193,4 @@ class JSD_2D(nn.Module):
         f_term = self.entropy(mean_prob)
         mean_entropy = sum(list(map(lambda x: self.entropy(x), input))) / len(input)
         assert f_term.shape == mean_entropy.shape
-        return f_term - mean_entropy
+        return f_term, mean_entropy

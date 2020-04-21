@@ -17,7 +17,7 @@ warnings.filterwarnings('ignore')
 parser_args = yaml_parser()
 print('->>Input args:')
 pprint(parser_args)
-with open('config/spleen_config_cotraing.yaml', 'r') as f:
+with open('config/ACDC_config_cotraing.yaml', 'r') as f:
     config = yaml.load(f.read())
 print('->> Merged Config:')
 config = dict_merge(config, parser_args, True)
@@ -56,6 +56,7 @@ cotrainner = CoTrainer(segmentators=segmentators,
                        criterions=criterions,
                        adv_scheduler_dict=config['Adv_Scheduler'],
                        cot_scheduler_dict=config['Cot_Scheduler'],
+                       alpha_scheduler_dict=config['Alpha_Scheduler'],
                        adv_training_dict=config['Adv_Training'],
                        **config['Trainer'],
                        whole_config=config)

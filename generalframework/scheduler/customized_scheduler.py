@@ -65,6 +65,31 @@ class RampScheduler(Scheduler):
         return max_val * np.exp(mult * (1. - float(epoch - begin_epoch) / (max_epochs - begin_epoch)) ** 2)
 
 
+class RampalphaScheduler(Scheduler):
+
+    def __init__(self, begin_epoch, max_epoch, min_value):
+        super().__init__()
+        self.begin_epoch = int(begin_epoch)
+        self.max_epoch = int(max_epoch)
+        self.min_value = float(min_value)
+        self.epoch = 0
+
+    def step(self):
+        self.epoch += 1
+
+    @property
+    def value(self):
+        return self.get_lr(self.epoch, self.begin_epoch, self.max_epoch, self.min_value)
+
+    @staticmethod
+    def get_lr(epoch, begin_epoch, max_epoch, min_value):
+        if epoch < begin_epoch:
+            return 1.0
+        elif epoch >= max_epoch:
+            return min_value
+        return 1 - ((epoch - begin_epoch) / (max_epoch - begin_epoch)) * (1 - min_value)
+
+
 class ConstantScheduler(Scheduler):
 
     def __init__(self, begin_epoch, max_value=1.0):

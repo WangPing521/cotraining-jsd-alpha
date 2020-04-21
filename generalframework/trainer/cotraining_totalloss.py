@@ -40,6 +40,7 @@ class CoTrainer(Trainer):
                  metricname: str = 'metrics.csv',
                  adv_scheduler_dict: dict = None,
                  cot_scheduler_dict: dict = None,
+                 alpha_scheduler_dict: dict = None,
                  adv_training_dict: dict = {},
                  use_tqdm: bool = True,
                  whole_config=None) -> None:
@@ -82,6 +83,8 @@ class CoTrainer(Trainer):
         # scheduler
         self.cot_scheduler = getattr(scheduler, cot_scheduler_dict['name'])(
             **{k: v for k, v in cot_scheduler_dict.items() if k != 'name'})
+        self.alpha_scheduler = getattr(scheduler, alpha_scheduler_dict['name'])(
+            **{k: v for k, v in alpha_scheduler_dict.items() if k != 'name'})
         self.adv_scheduler = getattr(scheduler, adv_scheduler_dict['name'])(
             **{k: v for k, v in adv_scheduler_dict.items() if k != 'name'})
         self.adv_training_dict = adv_training_dict
@@ -222,7 +225,8 @@ class CoTrainer(Trainer):
                 unlab_img, unlab_gt = unlab_img.to(self.device), unlab_gt.to(self.device)
                 unlab_preds: List[Tensor] = map_(lambda x: x.predict(unlab_img, logit=False), self.segmentators)
                 list(map(lambda x, y: x.add(y, unlab_gt), unlabdiceMeters, unlab_preds))
-                jsdloss_2D: Tensor = self.criterions.get('jsd')(unlab_preds)
+                f_term, mean_entropy = self.criterions.get('jsd')(unlab_preds)
+                jsdloss_2D = f_term - self.alpha_scheduler.value * mean_entropy
                 jsdLoss: Tensor = jsdloss_2D.mean()
                 jsdlossMeter.add(jsdLoss.item())
                 #
@@ -453,6 +457,7 @@ class CoTrainer(Trainer):
         for segmentator in self.segmentators:
             segmentator.schedulerStep()
         self.cot_scheduler.step()
+        self.alpha_scheduler.step()
         self.adv_scheduler.step()
 
     def _load_checkpoint(self, checkpoint):

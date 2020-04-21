@@ -55,6 +55,12 @@ Cot_Scheduler:
   max_value: 0.5
   ramp_mult: -5
 
+Alpha_Scheduler:
+  name: RampalphaScheduler
+  begin_epoch: 0
+  max_epoch: 0
+  min_value: 0.0
+
 Adv_Scheduler:
   name: RampScheduler
   begin_epoch: 20

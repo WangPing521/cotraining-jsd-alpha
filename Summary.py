@@ -120,7 +120,8 @@ class Ensembleway(object):
         return hard_preds.float()
 
 
-device = torch.device(config['Trainer']['device'])
+# device = torch.device(config['Trainer']['device'])
+device = 'cpu'
 ensemble = Ensembleway(args.ensemble_method)
 
 models = load_models(checkpoints)
