@@ -29,7 +29,7 @@ Lab_Dataloader:
                   {grp_regex: '(patient\d+_\d+)_\d+',shuffle: False}]
 
 Lab_Partitions:
-  num_models: 2
+  num_models: 1
   partition_sets: 0.2
   partition_overlap: 1
 
@@ -41,7 +41,7 @@ Unlab_Dataloader:
   drop_last: True
 
 Trainer:
-  max_epoch: 300
+  max_epoch: 200
   save_dir: tmp/ACDC_cotraining
   device: cuda:0
   axises: [1,2,3]
@@ -50,7 +50,7 @@ Trainer:
 
 Cot_Scheduler:
   name: RampScheduler
-  begin_epoch: 0
+  begin_epoch: 5
   max_epoch: 50
   max_value: 0.5
   ramp_mult: -5
@@ -59,7 +59,7 @@ Alpha_Scheduler:
   name: RampalphaScheduler
   begin_epoch: 0
   max_epoch: 0
-  min_value: 0.0
+  min_value: 0
 
 Adv_Scheduler:
   name: RampScheduler
@@ -76,6 +76,7 @@ Loss:
   weight: [1, 1, 1, 1]
 
 StartTraining:
+  entropy_min: True
   train_jsd: False
   train_adv: False
   save_train: False
@@ -83,4 +84,4 @@ StartTraining:
   augment_labeled_data: True
   augment_unlabeled_data: True
 
-Seed: 1234
+Seed: 1233

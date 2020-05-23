@@ -73,6 +73,7 @@ class Trainer(Base):
         self.axises = axises
         self.best_score = -1
         self.start_epoch = 0
+        self.last_score = -1
         self.metricname = metricname
 
         if checkpoint is not None:
@@ -86,8 +87,10 @@ class Trainer(Base):
         state_dict = torch.load(checkpoint, map_location=torch.device('cpu'))
         self.segmentator.load_state_dict(state_dict['segmentator'])
         self.best_score = state_dict['best_score']
-        self.start_epoch = state_dict['best_epoch']
-        print(f'>>>  {checkpoint} has been loaded successfully. Best score {self.best_score:.3f} @ {self.start_epoch}.')
+        self.start_epoch = state_dict['start_epoch']
+        self.last_score = state_dict['last_score']
+        print(f'>>>  {checkpoint} has been loaded successfully. last score {self.best_score:.3f} and {self.last_score:.3f} @ {self.start_epoch}.')
+
         self.segmentator.train()
 
     def to(self, device: torch.device):
@@ -205,19 +208,30 @@ class Trainer(Base):
 
         return coef_dice, batch_dice, loss_log
 
-    def checkpoint(self, metric, epoch, filename='best.pth'):
-        if metric <= self.best_score:
-            return
-        else:
+    def checkpoint(self, metric, epoch, filename_best='best.pth', filename_last='last.pth'):
+        record_dir = Path(os.path.join(self.save_dir, str(epoch)))
+        record_dir.mkdir(parents=True, exist_ok=True)
+        self.last_score = metric
+        state_dict = self.segmentator.state_dict
+        state_dict = {'segmentator': state_dict, 'last_score': metric, 'start_epoch': epoch}
+        save_path = Path(os.path.join(record_dir, filename_last))
+        torch.save(state_dict, save_path)
+        if Path(record_dir, "iter%.3d" % epoch).exists():
+            if Path(record_dir, Path(filename_last).stem).exists():
+                shutil.rmtree(Path(record_dir, Path(filename_last).stem))
+            shutil.copytree(Path(record_dir, "iter%.3d" % epoch), Path(record_dir, Path(filename_last).stem))
+
+        if metric >= self.best_score:
             self.best_score = metric
             state_dict = self.segmentator.state_dict
-            state_dict = {'segmentator': state_dict, 'best_score': metric, 'best_epoch': epoch}
-            save_path = Path(os.path.join(self.save_dir, filename))
+            state_dict = {'segmentator': state_dict, 'best_score': metric, 'start_epoch': epoch}
+            save_path = Path(os.path.join(record_dir, filename_best))
             torch.save(state_dict, save_path)
-            if Path(self.save_dir, "iter%.3d" % epoch).exists():
-                if Path(self.save_dir, Path(filename).stem).exists():
-                    shutil.rmtree(Path(self.save_dir, Path(filename).stem))
-                shutil.copytree(Path(self.save_dir, "iter%.3d" % epoch), Path(self.save_dir, Path(filename).stem))
+            if Path(record_dir, "iter%.3d" % epoch).exists():
+                if Path(record_dir, Path(filename_best).stem).exists():
+                    shutil.rmtree(Path(record_dir, Path(filename_best).stem))
+                shutil.copytree(Path(record_dir, "iter%.3d" % epoch), Path(record_dir, Path(filename_best).stem))
+
 
     @classmethod
     def toOneHot(cls, pred_logit, mask):

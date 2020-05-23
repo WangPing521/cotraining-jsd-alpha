@@ -77,6 +77,7 @@ class CoTrainer(Trainer):
         self.C = self.segmentators[0].arch_params['num_classes']
         self.axises = axises
         self.best_scores = np.zeros(self.segmentators.__len__())
+        self.last_scores = np.zeros(self.segmentators.__len__())
         self.start_epoch = 0
         self.metricname = metricname
 
@@ -100,7 +101,12 @@ class CoTrainer(Trainer):
         [segmentator.to(device) for segmentator in self.segmentators]
         [criterion.to(device) for _, criterion in self.criterions.items()]
 
+    def tensorboard_loss(self, save_root):
+        writer1 = SummaryWriter(save_root)
+        return writer1
+
     def start_training(self,
+                       entropy_min=False,
                        train_jsd=False,
                        train_adv=False,
                        save_train=False,
@@ -112,7 +118,10 @@ class CoTrainer(Trainer):
                    'train_unlab_dice': torch.zeros(self.max_epoch, S, self.C, 2, dtype=torch.float),
                    'val_dice': torch.zeros(self.max_epoch, S, self.C, 2, dtype=torch.float),
                    'val_batch_dice': torch.zeros(self.max_epoch, S, self.C, 2, dtype=torch.float)}
-
+        writer1 = self.tensorboard_loss(self.save_dir)
+        test = False
+        if test:
+            loss = self._test_unlab_loop(unlabeled_dataloader=self.unlabeled_dataloader, mode=ModelMode.EVAL)
         for epoch in range(self.start_epoch, self.max_epoch):
 
             train_dice, train_unlab_dice = self._train_loop(labeled_dataloaders=self.labeled_dataloaders,
@@ -120,10 +129,12 @@ class CoTrainer(Trainer):
                                                             epoch=epoch,
                                                             mode=ModelMode.TRAIN,
                                                             save=save_train,
+                                                            entropy_min=entropy_min,
                                                             train_jsd=train_jsd,
                                                             train_adv=train_adv,
                                                             augment_labeled_data=augment_labeled_data,
-                                                            augment_unlabeled_data=augment_unlabeled_data
+                                                            augment_unlabeled_data=augment_unlabeled_data,
+                                                            writer1=writer1
                                                             )
             with torch.no_grad():
                 val_dice, val_batch_dice = self._eval_loop(val_dataloader=self.val_dataloader,
@@ -156,7 +167,44 @@ class CoTrainer(Trainer):
             writer.close()
 
             current_metric = val_batch_dice[:, self.axises, 0].mean(1)
-            self.checkpoint(current_metric, epoch)
+            if epoch % 10 == 0:
+                self.checkpoint(current_metric, epoch)
+
+    def entropy(self, inputs):
+        b, _, h, w = inputs.shape
+        assert simplex(inputs)
+        e = inputs * (inputs + 1e-16).log()
+        e = -1.0 * e.sum(1)
+        assert e.shape == torch.Size([b, h, w])
+        return e
+
+    def _test_unlab_loop(self, unlabeled_dataloader: DataLoader, mode: ModelMode = ModelMode.EVAL):
+        [segmentator.set_mode(mode) for segmentator in self.segmentators]
+        unlabeled_dataloader.dataset.set_mode(ModelMode.EVAL)
+        assert not self.segmentators[0].training
+        unlabeled_dataloader = tqdm_(unlabeled_dataloader) if self.use_tqdm else unlabeled_dataloader
+
+        for batch_num, [(img, gt), _, path] in enumerate(unlabeled_dataloader):
+            img, gt = img.to(self.device), gt.to(self.device)
+            preds = map_(lambda x: x.predict(img, logit=True), self.segmentators)
+            # preds[0].softmax(dim=1)[0]
+            f1 = []
+            f2 = []
+            mean_pre = []
+            for i in range(4):
+                mean_prob = 0.5 * (preds[0][i].softmax(dim=0) + preds[1][i].softmax(dim=0))
+
+                E_mean_pred = self.entropy(mean_prob.unsqueeze(0)).mean()
+                E1 = self.entropy(preds[0][i].softmax(dim=0).unsqueeze(0)).mean()
+                E2 = self.entropy(preds[1][i].softmax(dim=0).unsqueeze(0)).mean()
+
+                Mean_E_pred = 0.5 * (E1 + E2)
+                f1.append(E1.item())
+                f2.append(E2.item())
+                mean_pre.append(E_mean_pred.item())
+            print('\n', f1,'\n', f2, '\n', mean_pre)
+            loss = map_(lambda pred: self.criterions.get('sup')(pred, gt.squeeze(1)), preds)
+        return E_mean_pred, Mean_E_pred, loss
 
     def _train_loop(self,
                     labeled_dataloaders: List[DataLoader],
@@ -166,8 +214,10 @@ class CoTrainer(Trainer):
                     save: bool,
                     augment_labeled_data=False,
                     augment_unlabeled_data=False,
+                    entropy_min=False,
                     train_jsd=False,
-                    train_adv=False):
+                    train_adv=False,
+                    writer1=None):
 
         fix_seed(epoch)
         diceMeters = [DiceMeter(report_axises=self.axises, method='2d', C=self.C) for _ in
@@ -191,7 +241,7 @@ class CoTrainer(Trainer):
         desc = f">>   Training   ({epoch})" if mode == ModelMode.TRAIN else f">> Validating   ({epoch})"
         # Here the concept of epoch is defined as the epoch
         # n_batch = max(map_(len, self.labeled_dataloaders))
-        n_batch = 300
+        n_batch = 200
         S = len(self.segmentators)
 
         # build fake_iterator
@@ -207,7 +257,7 @@ class CoTrainer(Trainer):
             if batch_num % 30 == 0 and train_jsd and self.cot_scheduler.value > 0:
                 report_status = report_iterator.__next__()
 
-            supervisedLoss, jsdLoss, advLoss = 0, 0, 0
+            supervisedLoss, jsdLoss, advLoss, loss1, loss2, entLoss = 0, 0, 0, 0, 0, 0
             for enu_lab in range(len(fake_labeled_iterators)):
                 [[img, gt], _, path] = fake_labeled_iterators[enu_lab].__next__()
                 img, gt = img.to(self.device), gt.to(self.device)
@@ -219,6 +269,14 @@ class CoTrainer(Trainer):
                     save_images(pred2class(pred), names=path, root=self.save_dir, mode='train', iter=epoch,
                                 seg_num=str(enu_lab))
                 supervisedLoss += sup_loss
+            if entropy_min:
+                [[unlab_img, unlab_gt], _, path] = fake_unlabeled_iterator.__next__()
+                unlab_img, unlab_gt = unlab_img.to(self.device), unlab_gt.to(self.device)
+                unlab_preds: List[Tensor] = map_(lambda x: x.predict(unlab_img, logit=False), self.segmentators)
+                list(map(lambda x, y: x.add(y, unlab_gt), unlabdiceMeters, unlab_preds))
+                entropys_metric = self.entropy(unlab_preds[0])
+                entLoss = entropys_metric.mean()
+
             if train_jsd:
                 # for unlabeled data update
                 [[unlab_img, unlab_gt], _, path] = fake_unlabeled_iterator.__next__()
@@ -229,6 +287,8 @@ class CoTrainer(Trainer):
                 jsdloss_2D = f_term - self.alpha_scheduler.value * mean_entropy
                 jsdLoss: Tensor = jsdloss_2D.mean()
                 jsdlossMeter.add(jsdLoss.item())
+                loss1 = f_term.mean().item()
+                loss2 = (self.alpha_scheduler.value * mean_entropy).mean().item()
                 #
                 if save:
                     [save_images(probs2class(prob), names=path, root=self.save_dir, mode='unlab',
@@ -247,7 +307,7 @@ class CoTrainer(Trainer):
 
                 advlossMeter.add(advLoss.item())
             map_(lambda x: x.optimizer.zero_grad(), self.segmentators)
-            totalLoss = supervisedLoss + self.cot_scheduler.value * jsdLoss + self.adv_scheduler.value * advLoss
+            totalLoss = supervisedLoss + self.cot_scheduler.value * jsdLoss + self.adv_scheduler.value * advLoss + self.cot_scheduler.value * entLoss
             totalLoss.backward()
             map_(lambda x: x.optimizer.step(), self.segmentators)
 
@@ -266,6 +326,12 @@ class CoTrainer(Trainer):
                 n_batch_iter.set_postfix({f'{k}_{k_}': f'{v[k_]:.2f}' for k, v in nice_dict.items() for k_ in v.keys()})
                 n_batch_iter.set_description(
                     report_status + ': ' + ','.join([f'{k}:{v:.3f}' for k, v in loss_dict.items()]))
+
+        writer1.add_scalar('Loss/loss_sup', supervisedLoss.item() / 4, epoch)
+        writer1.add_scalar('Loss/jsd_term1', loss1 / 4, epoch)
+        writer1.add_scalar('Loss/jsd_term2',  loss2 / 4, epoch)
+        writer1.add_scalar('Loss/entropy_value',  entLoss / 4, epoch)
+        writer1.add_scalar('Loss/total_loss', totalLoss.item() / 4, epoch)
 
         self.upload_dicts('labeled dataset', lab_dsc_dict, epoch)
         self.upload_dicts('unlabeled dataset', unlab_dsc_dict, epoch)
@@ -314,6 +380,7 @@ class CoTrainer(Trainer):
                 val_dataloader.set_description('val: ' + ','.join([f'{k}:{v:.3f}' for k, v in loss_dict.items()]))
                 val_dataloader.set_postfix(
                     {f'{k}_{k_}': f'{v[k_]:.2f}' for k, v in nice_dict.items() for k_ in v.keys()})
+
 
         self.upload_dicts('val_data', dsc_dict, epoch)
 
@@ -471,17 +538,20 @@ class CoTrainer(Trainer):
             assert cp.exists(), cp
             state_dict = torch.load(cp, map_location=torch.device('cpu'))
             self.segmentators[i].load_state_dict(state_dict['segmentator'])
-            self.best_scores[i] = state_dict['best_score']
+            self.last_scores[i] = state_dict['last_score']
+            self.start_epoch = state_dict["start_epoch"]
             print(f'>>>  {cp} has been loaded successfully. \
-                Best score {self.best_scores[i]:.3f} @ {state_dict["best_epoch"]}.')
+                Last score {self.last_scores[i]:.3f} @ {state_dict["start_epoch"]}.')
             self.segmentators[i].train()
 
-    def checkpoint(self, metric, epoch, filename='best.pth'):
+    def checkpoint(self, metric, epoch, filename_best=None, filename_last=None):
         assert isinstance(metric, Tensor)
         assert metric.__len__() == self.segmentators.__len__()
         for i, score in enumerate(metric):
             # slack variable:
             self.best_score = self.best_scores[i]
+            self.last_score = self.last_scores[i]
             self.segmentator = self.segmentators[i]
-            super().checkpoint(score, epoch, filename=f'best_{i}.pth')
+            super().checkpoint(score, epoch, filename_best=f'best_{i}.pth', filename_last=f'last_{i}.pth')
             self.best_scores[i] = self.best_score
+            self.last_scores[i] = self.last_score

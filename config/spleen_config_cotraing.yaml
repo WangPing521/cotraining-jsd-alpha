@@ -15,7 +15,7 @@ Scheduler:
 Dataset:
   root_dir: dataset/Spleen
   subfolders: ['img','gt']
-  transform: segment_transform((512,512))
+  transform: segment_transform((256,256))
   augment: PILaugment
   pin_memory: False
 
@@ -54,6 +54,12 @@ Cot_Scheduler:
   max_epoch: 50
   max_value: 0.5
   ramp_mult: -5
+
+Alpha_Scheduler:
+  name: RampalphaScheduler
+  begin_epoch: 0
+  max_epoch: 0
+  min_value: 0.0
 
 Adv_Scheduler:
   name: RampScheduler

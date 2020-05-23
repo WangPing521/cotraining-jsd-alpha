@@ -1,1 +1,1 @@
-from .customized_scheduler import RampScheduler, RampalphaScheduler, ConstantScheduler, RampDownScheduler
+from .customized_scheduler import RampScheduler, RampalphaScheduler, ConstantScheduler, RampDownScheduler, selfpacedScheduler

@@ -1,15 +1,11 @@
 #!/usr/bin/env bash
 cd ../../
-save_dir=deep_cotraining_jsd_alpha
+save_dir=deep_cotraining_jsd_alpha_run2
 declare -a StringArray=(
 "python train_ACDC_cotraining.py  config=config/ACDC_config_cotraing.yaml  Trainer.save_dir=${save_dir}/baseline_f Lab_Partitions.partition_sets=1.0 "
-#"python train_ACDC_cotraining.py  config=config/ACDC_config_cotraing.yaml  Trainer.save_dir=${save_dir}/baseline_p "
-#"python train_ACDC_cotraining.py  config=config/ACDC_config_cotraing.yaml  Trainer.save_dir=${save_dir}/jsd StartTraining.train_jsd=True "
-#"python train_ACDC_cotraining.py  config=config/ACDC_config_cotraing.yaml  Trainer.save_dir=${save_dir}/adv StartTraining.train_adv=True "
-#"python train_ACDC_cotraining.py  config=config/ACDC_config_cotraing.yaml  Trainer.save_dir=${save_dir}/jsd_adv StartTraining.train_jsd=True StartTraining.train_adv=True "
 
 "python train_ACDC_cotraining.py  config=config/ACDC_config_cotraing.yaml  Trainer.save_dir=${save_dir}/baseline_p "
-"python train_ACDC_cotraining.py  config=config/ACDC_config_cotraing.yaml  Trainer.save_dir=${save_dir}/jsd_1.0 Alpha_Scheduler.begin_epoch=300 StartTraining.train_jsd=True "
+"python train_ACDC_cotraining.py  config=config/ACDC_config_cotraing.yaml  Trainer.save_dir=${save_dir}/jsd_1.0 Alpha_Scheduler.begin_epoch=200 StartTraining.train_jsd=True "
 "python train_ACDC_cotraining.py  config=config/ACDC_config_cotraing.yaml  Trainer.save_dir=${save_dir}/jsd_0.8 Alpha_Scheduler.min_value=0.8 StartTraining.train_jsd=True "
 "python train_ACDC_cotraining.py  config=config/ACDC_config_cotraing.yaml  Trainer.save_dir=${save_dir}/jsd_0.6 Alpha_Scheduler.min_value=0.6 StartTraining.train_jsd=True"
 "python train_ACDC_cotraining.py  config=config/ACDC_config_cotraing.yaml  Trainer.save_dir=${save_dir}/jsd_0.5 Alpha_Scheduler.min_value=0.5 StartTraining.train_jsd=True"
